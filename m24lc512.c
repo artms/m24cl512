@@ -24,7 +24,25 @@ static const struct of_device_id m24lc512_of_match[] = {
 
 static int m24lc512_i2c_probe(struct i2c_client *client)
 {
-	dev_info(&client->dev, "starting probing\n");
+	unsigned char buf[1];
+	int ret;
+	struct device *dev = &client->dev;
+
+	dev_info(dev, "starting probing\n");
+	// we only care for I2C with full implementation of I2C
+	dev_info(dev, "checking I2C functionality\n");
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		dev_err(dev, "I2C adapter doesn't have full I2C functionality\n");
+		return -EIO;
+	}
+
+	dev_info(dev, "checking device presence on the bus\n");
+	ret = i2c_master_recv(client, buf, 1);
+	if (ret != 1) {
+		dev_err(dev, "device is not responding\n");
+		return -ENODEV;
+	}
+
 	return 0;
 }
 
