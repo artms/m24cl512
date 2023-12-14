@@ -1,0 +1,9 @@
+.m*
+.M*
+Module.symvers
+m24lc512.ko
+m24lc512.mod
+m24lc512.mod.c
+m24lc512.mod.o
+m24lc512.o
+modules.order
