@@ -8,6 +8,7 @@
 
 #include <linux/i2c.h>
 #include <linux/of_device.h>
+#include <linux/regmap.h>
 
 #define M24LC512 0
 
@@ -28,6 +29,14 @@ static int m24lc512_i2c_probe(struct i2c_client *client)
 	int ret;
 	struct device *dev = &client->dev;
 
+	struct regmap *regmap;
+	const struct regmap_config regmap_config = {
+		.reg_bits        = 16,
+		.val_bits        = 8,
+		.disable_locking = true,
+		.can_sleep       = true,
+	};
+
 	dev_info(dev, "starting probing\n");
 	// we only care for I2C with full implementation of I2C
 	dev_info(dev, "checking I2C functionality\n");
@@ -41,6 +50,13 @@ static int m24lc512_i2c_probe(struct i2c_client *client)
 	if (ret != 1) {
 		dev_err(dev, "device is not responding\n");
 		return -ENODEV;
+	}
+
+	dev_info(dev, "preparing regmap to read/write data\n");
+	regmap = devm_regmap_init_i2c(client, &regmap_config);
+	if (IS_ERR(regmap)) {
+		dev_err(dev, "unable to setup regmap\n");
+		return PTR_ERR(regmap);
 	}
 
 	return 0;
