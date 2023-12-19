@@ -9,8 +9,14 @@
 #include <linux/i2c.h>
 #include <linux/of_device.h>
 #include <linux/regmap.h>
+#include <linux/nvmem-provider.h>
 
 #define M24LC512 0
+// size of EEPROM
+#define M24LC512_SIZE 65536
+#define M24LC512_PAGE_SIZE 128
+// chip writes data in 5ms max
+#define M24LC512_WRITE_TIME_MS 5
 
 static const struct i2c_device_id m24lc512_idtable[] = {
 	{ "24lc512", M24LC512 },
@@ -22,6 +28,69 @@ static const struct of_device_id m24lc512_of_match[] = {
 	{ .compatible = "microchip,24lc512" },
 	{ /* END OF LIST */ },
 };
+
+struct m24lc512_i2c_data {
+	struct mutex lock;
+
+	struct regmap *regmap;
+};
+
+int m24lc512_i2c_read(void *priv, unsigned int offset, void *val, size_t count)
+{
+	struct m24lc512_i2c_data *data = priv;
+	int ret;
+
+	if (count == 0) {
+		return 0;
+	}
+	
+	if (offset + count > M24LC512_SIZE) {
+		return -EINVAL;
+	}
+
+	mutex_lock(&data->lock);
+
+	for (unsigned int i=0; i < count; i = i + M24LC512_PAGE_SIZE) {
+		int bytes_to_read = count-i > M24LC512_PAGE_SIZE ? M24LC512_PAGE_SIZE : count-i;
+		ret = regmap_bulk_read(data->regmap, offset+i, val+i, bytes_to_read);
+		if (ret != 0) {
+			break;
+		}
+	}
+
+	mutex_unlock(&data->lock);
+
+	return ret;
+}
+
+int m24lc512_i2c_write(void *priv, unsigned int offset, void *val, size_t count) {
+	struct m24lc512_i2c_data *data = priv;
+	int ret;
+
+	if (count == 0) {
+		return 0;
+	}
+	
+	if (offset + count > M24LC512_SIZE) {
+		return -EINVAL;
+	}
+
+	mutex_lock(&data->lock);
+
+	for (unsigned int i=0; i < count; i = i + M24LC512_PAGE_SIZE) {
+		int bytes_to_write = count-i > M24LC512_PAGE_SIZE ? M24LC512_PAGE_SIZE : count-i;
+		ret = regmap_bulk_write(data->regmap, offset+i, val+i, bytes_to_write);
+		if (ret != 0) {
+			break;
+		}
+		// 24LC512 specification says that write will finish in 5ms max hence wait between 5ms to 6ms
+		usleep_range(M24LC512_WRITE_TIME_MS*1000, (M24LC512_WRITE_TIME_MS+1)*1000);
+	}
+
+	mutex_unlock(&data->lock);
+
+	return ret;
+}
 
 static int m24lc512_i2c_probe(struct i2c_client *client)
 {
@@ -36,6 +105,18 @@ static int m24lc512_i2c_probe(struct i2c_client *client)
 		.disable_locking = true,
 		.can_sleep       = true,
 	};
+
+	struct nvmem_device *nvmem;
+	struct nvmem_config nvmem_config = {
+		.dev       = dev,
+		.owner     = THIS_MODULE,
+		.type      = NVMEM_TYPE_EEPROM,
+		.size      = M24LC512_SIZE,
+		.word_size = 1,
+		.reg_read  = m24lc512_i2c_read,
+		.reg_write = m24lc512_i2c_write,
+	};
+	struct m24lc512_i2c_data *data;
 
 	dev_info(dev, "starting probing\n");
 	// we only care for I2C with full implementation of I2C
@@ -57,6 +138,23 @@ static int m24lc512_i2c_probe(struct i2c_client *client)
 	if (IS_ERR(regmap)) {
 		dev_err(dev, "unable to setup regmap\n");
 		return PTR_ERR(regmap);
+	}
+
+	data = devm_kzalloc(dev, sizeof(struct m24lc512_i2c_data), GFP_KERNEL);
+	if (!data) {
+		return -ENOMEM;
+	}
+	i2c_set_clientdata(client, data);
+
+	mutex_init(&data->lock);
+	data->regmap = regmap;
+
+	dev_info(dev, "registering nvmem subsystem\n");
+	nvmem_config.priv = data;
+	nvmem = devm_nvmem_register(dev, &nvmem_config);
+	if (IS_ERR(nvmem)) {
+		dev_err(dev, "failed to register with nvmem subsystem\n");
+		return PTR_ERR(nvmem);
 	}
 
 	return 0;

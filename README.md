@@ -15,8 +15,6 @@ m24lc512_eeprom: eeprom@50 {
 	pagesize = 128;
 };
 ```
-# Notable bits
 
-This module is specifically tailored for 24LC512 EEPROM chip hence:
-1) Page size is upto 128 bytes though it is limit for write and not to reads but this will as well limit the time I2C bus is hogged so sticking with it.
-2) Page write is 5ms maximum, chip acknowledges writes when you try to write next batch.
+# Compilation
+Install linux kernel headers, `gcc`, `make` on your favorite linux distribution and then run `make`. Module can be inserted using `insmod` and remove `rmmod`. Do keep in mind you will need to have device tree configured to make sure module detects hw. Device tree can be used the same as above though other than `reg` and `compatible` the rest of parameters are ignored.
